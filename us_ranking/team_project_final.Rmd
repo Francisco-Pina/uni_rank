@@ -1,0 +1,356 @@
+---
+title: 'Ranking Best Universities in the U.S '
+author: "Francisco Pina & Christian Romero"
+subtitle: R for Data Science @ Hult University
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+  html_notebook:
+    highlight: pygments
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_float:
+      collapsed: yes
+---
+
+# Set-up {-}
+  
+```{r load packages, message=FALSE, warning=FALSE}
+library(tidyverse)
+```
+
+# Introduction 
+
+Education in the United States is known worldwide for being one of the best in terms of quality and prestige, however, it is also known to be among the most expensive. It is not coincidence that student debt levels in the US.
+
+College tuition has increased year after year, posing challenges for students to find the most affordable institutions which have a good education level. In the UK, students have an average student debt of 30,800 USD. Students graduating in Canada have an average student debt of 20,000 USD, and in Germany, the average debt is only 2,400 USD. Meanwhile, students in the United States are graduating with far more student debt than any other country in the world. [Click to read source](https://www.studentloanreview.com/college-cost-around-the-world-infographic/#:~:text=Students%20graduating%20in%20Canada%20have,other%20country%20in%20the%20world.)
+
+
+[1 or 2 **short** (3-4 sentence paragraphs) What did you do and what did you find?]
+
+# Data 
+
+This data focuses on higher education tuition costs in the United States. It consists of 5 datasets, each of which focuses on different aspects of the educational environment. Our focus will be on diversity, tuition costs and salary potential
+
+[Data Source](https://www.kaggle.com/jessemostipak/college-tuition-diversity-and-pay?select=tuition_income.csv)
+
+
+```{r load data, message=FALSE, warning=FALSE}
+
+diversity_school = read.csv("./diversity_school.csv")
+historical_tuition = read.csv("./historical_tuition.csv")
+salary_potential = read.csv("./salary_potential.csv")
+tuition_cost = read.csv("./tuition_cost.csv")
+tuition_income = read.csv("./tuition_income.csv")
+```
+
+• **Diversity School: **Depicts the number of people of minorities in each university. 
+
+
+• **Salary Potential: **Describes the potential career pay in both the early and mid-career periods. Furthermore, it also gives the percentage of students who think they will make the world a better place and the percentage of students enrolled in STEM degrees.
+
+
+• **Tuition Costs: **Presents the tuition cost for the following scenarios: 
+
+*In_state_tuition* refers to costs for students from the same state where the college is.
+*Out_of_state_tuition* refers to costs for students from a different state where the college is.
+
+
+• **Tuition Income: **Characterizes the average pricing for a degree and the average net price for students within certain income brackets
+
+
+```{r Transformation: Change column names, message=FALSE, warning=FALSE}
+tuition_income = tuition_income %>% 
+  rename(state_code = state)
+
+salary_potential = salary_potential %>% 
+  rename(state = state_name)
+```
+
+```{r Transformation: Join Tuition_Income DF with Tuition_cost and Diversity DF, message=FALSE, warning=FALSE}
+tuition_income_cost = tuition_income %>% 
+  left_join(tuition_cost, by = c("name", "state_code")) %>% 
+  left_join(diversity_school, by = c("name", "state"))
+```
+
+```{r Transformation: Join Tuition Cost with Tuition_income and Salary_potential DF, message=FALSE, warning=FALSE}
+tuition_income_salary = tuition_cost %>%
+  left_join(tuition_income, by = c("name", "state_code")) %>% 
+  left_join(salary_potential, by = c("name", "state"))
+```
+
+
+# Best Universities by Salary
+
+One of the main factors that Universities take into consideration is the salary of their graduates. Organizations establish reputations with the superior performance of their graduates, consequently, salaries are a fairly consistent judgment on the worthiness of the students. Accordingly, the following section will inform which are the best places for students with low to mid income to go. Two main scenarios will be given: Students who want a STEM degree and vice-versa.
+
+Firstly, there will be an analysis that depicts the real cost and revenue of going to certain universities. The computations below are annuities that reveal the NPV (Net Present Value) of the investment and future salary. 
+
+
+## Assumptions: 
+
+•	The yearly living expenses for staying in the state and for coming from outside of the state are 11’000 and 15’000 respectively. \href{https://www.mastersportal.com/articles/1629/student-living-costs-in-the-usa-budgeting-for-an-international-degree-in-2020.html}{Stated in this Article}
+
+•	In order to choose if a University specializes in STEM, the criteria was that any institution with MORE than 25% students enrolled in STEM courses, was considered specialized. This treshold was chosen by analyzing the histogram of STEM graduates.A great amount of schools fall below this treshold, making 25% an ideal for above average STEM graduates.
+
+
+```{r High Stem/Low Stem treshold, message=FALSE, warning=FALSE}
+salary_potential %>% 
+  ggplot(data=. ,aes(x=stem_percent))+
+  geom_histogram() +
+  geom_vline(xintercept = 25, color="red")
+```
+
+•	The interest rate is 2.75% \href{https://studentaid.gov/understand-aid/types/loans/interest-rates}{(Federal interest rate for students)}  and the time periods for the annuity were 5 years of early career salary and 5 years of mid-career salary (information in dataset).
+
+•	Universities missing the number of enrolled students and the cost of tuition for lower income students will not appear in the final ranking.
+
+•	All values were assumed with low to mid income students and respective spending. Costs, interest rates and tuition may differ for different income brackets. 
+
+
+The cost for people that come from inside the state and for people who come from outside the state differ
+
+```{r Create new column with length of program, message=FALSE, warning=FALSE}
+tuition_income_salary <- tuition_income_salary %>% 
+  mutate(degree_length_year = ifelse(degree_length == "2 Year",2,4))
+```
+
+```{r Create Present Value of Annuity function, message=FALSE, warning=FALSE}
+annuity <- function(c,r,n){
+  
+  step1 <- (1+r)^n
+  step2 <- (step1 - 1) / r
+  step3 <- c*step2
+  
+  return(step3)
+}
+```
+
+```{r Calculation Out-of-state Net Debt, message=FALSE, warning=FALSE}
+
+loan_rate = 0.0275
+out_of_state_cost_year = 15000
+
+tuition_income_salary <- tuition_income_salary %>% 
+  mutate(net_debt_out_state = out_of_state_tuition*(1+loan_rate)^degree_length_year + annuity(c = out_of_state_cost_year, r = loan_rate, n = degree_length_year))
+
+```
+
+```{r Calculation In-state Net Debt, message=FALSE, warning=FALSE}
+loan_rate = 0.0275
+in_state_cost_year = 11000
+
+tuition_income_salary <- tuition_income_salary %>% 
+  mutate(net_debt_in_state = in_state_tuition*(1+loan_rate)^degree_length_year + annuity(c = in_state_cost_year, r = loan_rate, n = degree_length_year))
+```
+
+
+Computing the PV of the next 10 years of salary of an average graduate
+
+```{r Present Value calculation for average graduate in next 10 years, message=FALSE, warning=FALSE}
+early_career_years = 5
+mid_career_years = 5
+loan_rate = 0.0275
+
+
+salary_pv <- function(c1,c2,r,n,m){
+  
+  step1_1 <- (1+r)^n
+  step1_2 <- (step1_1 - 1) / r
+  step1_3 <- c1*step1_2
+  
+  step2_1 <- (1+r)^m
+  step2_2 <- (step2_1 - 1) / r
+  step2_3 <- c2*step2_2
+  
+  result <- step1_3 + step2_3/step1_1
+  
+  return(result)
+  
+}
+
+tuition_income_salary <- tuition_income_salary %>% 
+  filter(early_career_pay != "NA") %>% 
+  mutate(pv_salary = salary_pv(c1 = early_career_pay, c2 = mid_career_pay, r = loan_rate, n = early_career_years, m = mid_career_years) /((1+loan_rate)^degree_length_year)) 
+
+```
+
+
+Computing the NPV of the salary minus the PV of expenses
+
+```{r Calculation NPV (Salary PV - expenses PV), message=FALSE, warning=FALSE }
+tuition_income_salary <- tuition_income_salary %>% 
+  mutate(npv_tuition_in_state = pv_salary - net_debt_in_state) %>% 
+  mutate(npv_tuition_out_state = pv_salary - net_debt_out_state)
+```
+
+
+What is considered to be a University that specializes in STEM courses?
+
+We found with the following distribution that universities with over 25% of students enrolled in STEM courses, are considered to be specialized in such
+
+Separating STEM universities from NON-STEM and turning them into vectors with the objective of filtering our results.
+
+```{r Dummy variable for STEM and create vectors for filtering, message=FALSE, warning=FALSE}
+tuition_income_salary <- tuition_income_salary %>% 
+  mutate(is_stem = ifelse(stem_percent >= 25,1,0))
+
+with_stem = tuition_income_salary %>%
+  filter(is_stem==1) %>% 
+  .$name
+
+low_stem = tuition_income_salary %>%
+  filter(is_stem==0) %>% 
+  .$name
+```
+
+
+## Rankings
+
+Once the NPV’s for the investments were computed, the raking of the Universities was achieved by filtering the most recent year and low to mid income students. The tables below rank the best destinations for students prioritizing the best return for investment. 
+
+Before showing the rankings, it is interesting to observe the average salary of high STEM graduates universities vs low STEM graduates universities
+
+### Average salary of STEM and non-STEM degrees
+
+```{r Average salary high STEM graduates vs low STEM graduates, message=FALSE, warning=FALSE}
+tuition_income_salary %>% 
+  group_by(is_stem) %>% 
+  summarise(Average_PV_Salary = mean(pv_salary))
+```
+
+### Rank of the non-STEM universities (For lower income students)
+
+```{r Rank non-Stem Universities, message=FALSE, warning=FALSE}
+rank_table_no_stem <- tuition_income_salary %>% 
+  filter(name %in% low_stem ) %>% 
+  filter(year %in% c(2018) & income_lvl %in% c("0 to 30,000")) %>%
+  filter(campus == "On Campus") 
+
+rank_table_no_stem <- rank_table_no_stem[order(-rank_table_no_stem$pv_salary),]
+
+rank_table_no_stem$ranking <- NA
+rank_table_no_stem$ranking <- 1:nrow(rank_table_no_stem)
+
+rank_table_no_stem %>% 
+  slice_max(pv_salary, n=20)%>% 
+  select(ranking,name, state_code, net_debt_in_state, net_debt_out_state, pv_salary)
+```
+
+### Rank of the STEM Universities (for low income students)
+
+```{r Rank STEM universities, message=FALSE, warning=FALSE}
+rank_table_stem <- tuition_income_salary %>% 
+  filter(name %in% with_stem ) %>% 
+  filter(year %in% c(2018) & income_lvl %in% c("0 to 30,000")) %>%
+  filter(campus == "On Campus") 
+
+rank_table_stem <- rank_table_stem[order(-rank_table_stem$pv_salary),]
+
+rank_table_stem$ranking <- NA
+rank_table_stem$ranking <- 1:nrow(rank_table_stem)
+
+rank_table_stem %>% 
+  slice_max(pv_salary, n=20)%>% 
+  select(ranking,name, state_code,net_debt_in_state,net_debt_out_state,pv_salary)
+```
+
+### Average amount saved by staying in the same state 
+
+Besides giving just the ranking of the best Universities sor same-state students, we want to show you on average how much would students save if they choose not to move to a different state to study.
+
+```{r Average savings in-state, message=FALSE, warning=FALSE}
+tuition_income_salary %>% 
+  summarise(avg_saving_in_state = mean(net_debt_out_state - net_debt_in_state))
+```
+
+### Average Payback Period in Years -> Assuming yearly payments = 10% of Salary 
+
+Another measure of profitability is to calculate the payback period of the investment, in this case, student debt incurred in order to access higher education. There isn't a difference between high STEM graduates universities and low STEM graduates universities, but there is almost a 3 year difference in payback if you decide to stay in-state vs out-of-state.
+
+```{r Average payback period, message=FALSE, warning=FALSE}
+tuition_income_salary %>%  
+  filter(year %in% c(2018) & income_lvl %in% c("0 to 30,000")) %>%
+  filter(campus == "On Campus") %>% 
+  group_by(is_stem) %>% 
+  summarise(Payback_Period_Out_State = mean(net_debt_out_state/((early_career_pay/2 + mid_career_pay/2)/10)),Payback_Period_In_State = mean(net_debt_in_state/((early_career_pay/2 + mid_career_pay/2)/10)))
+```
+
+
+### Universities with the highest salaries in each state (No STEM)
+
+This is a ranking of the Universities with highest salaries for each state where the percentage of STEM graduates is low. These are universities which mostly focus on Humanities, Artes, Literature and Management.
+
+```{r Highest graduate salary per state no-stem, message=FALSE, warning=FALSE}
+rank_table_no_stem %>% 
+  filter(name %in% low_stem ) %>% 
+  filter(year %in% c(2018) & income_lvl %in% c("0 to 30,000")) %>%
+  filter(campus == "On Campus") %>% 
+  group_by(state) %>%  
+  slice_max(pv_salary) %>% 
+  select(ranking, name, state, net_debt_in_state, net_debt_out_state, pv_salary)
+```
+
+### Universities with the highest salaries in each state (STEM)
+
+This is a ranking of the Universities with highest salaries for each state where the percentage of STEM graduates is high These are universities which mostly focus on Science, Technology, Engineering and Mathemathics.
+
+```{rHighest salary per state Stem, message=FALSE, warning=FALSE}
+rank_table_stem %>% 
+  filter(name %in% with_stem ) %>% 
+  filter(year %in% c(2018) & income_lvl %in% c("0 to 30,000")) %>%
+  filter(campus == "On Campus") %>% 
+  group_by(state) %>%  
+  slice_max(pv_salary) %>% 
+  select(ranking, name, state, net_debt_in_state, net_debt_out_state, pv_salary)
+```
+
+# Diversity Ranking
+
+While future salary prospect is an important factor when deciding which school to go for, it is also important to take into consideration the measure of diversity at the school.
+
+```{r Creating minority dataframe, message=FALSE, warning=FALSE}
+minority = diversity_school %>% 
+  mutate(pct = enrollment / total_enrollment) %>% 
+  filter(category == "Total Minority")
+```
+
+We consider the "Total Minority %" as a measure of how schools work towards more inclusive environments. Here are some of the reasons why diversity matters:
+
+* Diversity enriches whe educational experience: We learn from those whose experiences, beliefs, and perspectives are different from our own, and these lessons can be taught best in a richly diverse intellectual and social environment. (ACE Board of Directors, 2012)
+
+* It enhances America's economic competitiveness. Sustaining the nation’s prosperity in the 21st century requires us to make effective use of the talents and abilities of all our citizens, in work settings that bring together individuals from diverse backgrounds and cultures. (ACE Board of Directors, 2012)
+
+During the analysis we discovered that many schools in the U.S had a Total Minority proportions of 100%. This was specially evident in small Community Schools (schools with low total enrollment focued on specific neighborhoods). For this reason we decided to focus on a Total minority % between 40% and 60% and also schools with total enrollment of 450 students or higher.
+
+```{r Total minority of 100%, message=FALSE, warning=FALSE}
+minority %>% 
+  slice_max(pct, n=5) %>% 
+  select(name, total_enrollment, enrollment, pct)
+```
+
+```{r}
+minority %>% 
+  filter(enrollment >450) %>%
+  filter(name %in% with_stem) %>% 
+  filter(pct > 0.4 & pct < 0.6) %>% 
+  slice_max(pct, n=10)
+```
+
+```{r}
+minority %>% 
+  filter(enrollment > 450) %>%
+  filter(name %in% low_stem ) %>% 
+  filter(pct > 0.4 & pct < 0.6) %>% 
+  slice_max(pct, n=10)
+```
+
+# Conclusion 
+
+Among all these chunks of code lies a simple idea: Which universities rank in the best positions regarding returns on investment and diversity. We consider that these are two important factors that greatly influence the 
+
+We would like to use this data for a future analysis regarding prediction of salaries. We consider that we have laid an interesting foundation and that we could think of a model that taking into consideration factors such as in-state/out-of-state, high stem/low stem, among some others, we could try to predict average salaries for graduates.
+
+
